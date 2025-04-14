@@ -3,6 +3,7 @@ import http from 'http';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
 import { config } from 'dotenv';
+import os from 'os';
 
 
 config();
@@ -19,7 +20,6 @@ const client = new Redis(process.env.REDIS_URL);
 
 // Handle Socket.io connections
 io.on('connection', (socket) => {
-
 
     // Handle user disconnect
     socket.on('disconnect', () => {
@@ -200,7 +200,147 @@ io.on('connection', (socket) => {
             userId: data.userId,
             isReady: data.isReady,
         });
+
+        // check if all users are ready 
+        const noOfPlayers = await client.hget(`roomId:${data.roomCode}:roomData`, "noOfPlayers");
+
+        if (noOfPlayers < 0) {
+            return;
+        }
+
+        const users = await client.hgetall(`roomId:${data.roomCode}:userData`);
+
+
+        // loop through users and check if all are ready
+        const allReady = Object.keys(users).every((key) => {
+            const user = JSON.parse(users[key]);
+            return user.isReady === true;
+        });
+        if (allReady) {
+
+            let emojiPool = [];
+
+            // 1. Create emojiPool where each emoji appears 4 times
+            const emojiSelected = await client.hget(`roomId:${data.roomCode}:roomData`, "emojiSelected");
+            const emojiSelectedArray = JSON.parse(emojiSelected || "[]");
+
+            emojiSelectedArray.forEach((emoji) => {
+                for (let i = 0; i < 4; i++) {
+                    emojiPool.push(emoji);
+                }
+            });
+
+            // 2. Shuffle the entire emojiPool
+            emojiPool = emojiPool.sort(() => Math.random() - 0.5);
+
+            // 3. Distribute 4 emojis per player
+            let emojiDistribution = {}; // optional: if you wanna send it to frontend
+
+            const rawUsers = await client.hgetall(`roomId:${data.roomCode}:userData`);
+            const users = {};
+
+            for (const [userId, userString] of Object.entries(rawUsers)) {
+                users[userId] = JSON.parse(userString);
+            }
+
+            // Now users[userId] is a real JS object
+            for (const userId of Object.keys(users)) {
+                const emojisForUser = emojiPool.splice(0, 4);
+                users[userId].chits = emojisForUser;
+                emojiDistribution[userId] = emojisForUser;
+            }
+
+            // Save updated users back to Redis
+            await client.hset(
+                `roomId:${data.roomCode}:userData`,
+                Object.entries(users).flatMap(([userId, userData]) => [userId, JSON.stringify(userData)])
+            );
+
+            // Emit start-game event
+            setTimeout(() => {
+                io.to(data.roomCode).emit("start-game", {
+                    gameStart: true,
+                });
+            }, 1000);
+
+            // Emit emoji-distributed event
+            setTimeout(() => {
+                console.log(emojiDistribution)
+                io.to(data.roomCode).emit("emoji-distributed", {
+                    emojiDistribution,
+                });
+            }, 2000);
+
+
+
+
+        }
     });
+
+
+    socket.on("card-passed", async (data) => {
+        const users = await client.hgetall(`roomId:${data.roomCode}:userData`);
+        const usersObj = Object.keys(users).reduce((acc, key) => {
+            acc[key] = JSON.parse(users[key]);
+            return acc;
+        }, {});
+
+        console.log(usersObj)
+
+        const pipeline = client.pipeline();
+
+
+        // Update the current user's chits
+        const currentUser = await client.hget(`roomId:${data.roomCode}:userData`, data.userId);
+        const currentUserData = JSON.parse(currentUser);
+
+        const indexToRemove = currentUserData.chits.indexOf(data.emoji);
+        if (indexToRemove !== -1) {
+            currentUserData.chits.splice(indexToRemove, 1);
+        }
+
+        pipeline.hset(`roomId:${data.roomCode}:userData`, data.userId, JSON.stringify(currentUserData));
+
+        const noOfPlayers = await client.hget(`roomId:${data.roomCode}:roomData`, "noOfPlayers");
+
+        let nextUserId;
+
+        console.log(data.userIndex, " : ", noOfPlayers)
+
+        if (data.userIndex === parseInt(noOfPlayers)) {
+            nextUserId = Object.keys(usersObj).find((key) => {
+                return usersObj[key].index === 1;
+            }
+            );
+        } else {
+            nextUserId = Object.keys(usersObj).find((key) => {
+                return usersObj[key].index === (data.userIndex) + 1;
+            }
+            );
+        }
+
+        console.log("nextUserId : ", nextUserId)
+
+        const nextUser = await client.hget(`roomId:${data.roomCode}:userData`, nextUserId)
+
+
+
+        const nextUserData = JSON.parse(nextUser)
+
+        nextUserData.chits.push(data.emoji)
+
+        pipeline.hset(`roomId:${data.roomCode}:userData`, nextUserId, JSON.stringify(nextUserData))
+
+        io.to(data.roomCode).emit("card-passed", {
+            emoji: data.emoji,
+            nextUserId: nextUserId,
+            userId: data.userId,
+        })
+
+        pipeline.exec().then(() => {
+            console.log("Card passed successfully");
+        })
+    })
 
 });
 
@@ -211,7 +351,22 @@ app.get('/', (req, res) => {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Socket.io server listening on port ${PORT}`);
-    console.log(`Open http://localhost:${PORT} to test`);
+const HOST = '0.0.0.0'; // Bind to all network interfaces
+const getLocalIp = () => {
+    const interfaces = os.networkInterfaces();
+    for (const iface of Object.values(interfaces)) {
+        for (const config of iface) {
+            if (config.family === 'IPv4' && !config.internal) {
+                return config.address;
+            }
+        }
+    }
+    return 'localhost';
+};
+
+const localIp = getLocalIp();
+
+server.listen(PORT, HOST, () => {
+    console.log(`Socket.io server listening on ${HOST}:${PORT}`);
+    console.log(`Open http://${localIp}:${PORT} to test on your local network`);
 });

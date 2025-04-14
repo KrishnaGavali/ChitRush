@@ -5,12 +5,11 @@ import { useParams } from "react-router"; // Fix import
 import { useGameSessionState } from "../Context/GameSessionSocket/GameSessionState";
 import EmojiSelector from "../Components/LobbyComponents/EmojiSelector";
 import Users from "../Components/LobbyComponents/Users";
+import GameScreen from "../Components/LobbyComponents/GameScreen";
 
 const Lobby = () => {
   const { socket } = useSocket();
   const { id } = useParams();
-  const [showGameScreen, setShowGameScreen] = useState(false);
-  const [emojiSelected, setEmojiSelected] = useState(null);
   const { gameSessionState, setGameSessionState } = useGameSessionState();
   const [showEmojiSelector, setShowEmojiSelector] = useState(true);
 
@@ -93,8 +92,8 @@ const Lobby = () => {
               name: storedUser.name,
               isPlayer: true,
               isReady: false,
-              chits: [],
               isWinner: false,
+              chits: [],
               toPlay: false,
               index: response.noOfPlayers,
             };
@@ -111,11 +110,41 @@ const Lobby = () => {
       );
     }
 
+    socket.on("start-game", (data) => {
+      if (data.gameStart) {
+        setGameSessionState((prevState) => ({
+          ...prevState,
+          gamePhase: "play",
+        }));
+      }
+    });
+
+    socket.on("emoji-distributed", (data) => {
+      setGameSessionState((prevState) => {
+        const updatedUsers = { ...prevState.users };
+
+        for (const [userId, emojis] of Object.entries(data.emojiDistribution)) {
+          if (updatedUsers[userId]) {
+            updatedUsers[userId].chits = emojis;
+          } else {
+            console.warn("User not found in state:", userId);
+          }
+        }
+
+        return {
+          ...prevState,
+          users: updatedUsers,
+        };
+      });
+    });
+
     // Cleanup function
     return () => {
       socket.off("user-joined");
       socket.off("create-room");
       socket.off("join-room");
+      socket.off("start-game");
+      socket.off("emoji-distributed");
     };
   }, [socket, id]); // Depend on socket and id
 
@@ -137,6 +166,9 @@ const Lobby = () => {
       )}
 
       {socket?.connected && gameSessionState.gamePhase === "wait" && <Users />}
+      {socket?.connected && gameSessionState.gamePhase === "play" && (
+        <GameScreen />
+      )}
     </div>
   );
 };

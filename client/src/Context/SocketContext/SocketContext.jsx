@@ -1,6 +1,7 @@
 // src/contexts/SocketContext.js
 import React, { createContext, useContext, useEffect, useState } from "react";
 import io from "socket.io-client";
+import os from "os";
 
 const SocketContext = createContext(null);
 
@@ -9,8 +10,8 @@ export const SocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    // Initialize socket connection
-    const newSocket = io("http://localhost:3000", {
+    const newSocket = io(`http://192.168.19.5:3000`, {
+      // Updated to use local IP
       // Optional configuration
       transports: ["websocket"],
       autoConnect: true,
