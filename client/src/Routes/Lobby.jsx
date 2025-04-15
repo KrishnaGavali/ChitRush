@@ -6,12 +6,15 @@ import { useGameSessionState } from "../Context/GameSessionSocket/GameSessionSta
 import EmojiSelector from "../Components/LobbyComponents/EmojiSelector";
 import Users from "../Components/LobbyComponents/Users";
 import GameScreen from "../Components/LobbyComponents/GameScreen";
+import WinnerScreen from "../Components/LobbyComponents/WinnerScreen";
 
 const Lobby = () => {
   const { socket } = useSocket();
   const { id } = useParams();
   const { gameSessionState, setGameSessionState } = useGameSessionState();
   const [showEmojiSelector, setShowEmojiSelector] = useState(true);
+
+  const [winnerData, setWinnerData] = useState(null);
 
   const ShowEmojiSelector = (value) => {
     setShowEmojiSelector(value);
@@ -125,6 +128,9 @@ const Lobby = () => {
 
         for (const [userId, emojis] of Object.entries(data.emojiDistribution)) {
           if (updatedUsers[userId]) {
+            if (updatedUsers[userId].index === 1) {
+              updatedUsers[userId].toPlay = true;
+            }
             updatedUsers[userId].chits = emojis;
           } else {
             console.warn("User not found in state:", userId);
@@ -135,6 +141,20 @@ const Lobby = () => {
           ...prevState,
           users: updatedUsers,
         };
+      });
+    });
+
+    socket.on("set-winner", (data) => {
+      console.log(data);
+
+      setGameSessionState((prevState) => ({
+        ...prevState,
+        gamePhase: "end",
+      }));
+
+      setWinnerData({
+        name: data.name,
+        chits: data.chits,
       });
     });
 
@@ -168,6 +188,9 @@ const Lobby = () => {
       {socket?.connected && gameSessionState.gamePhase === "wait" && <Users />}
       {socket?.connected && gameSessionState.gamePhase === "play" && (
         <GameScreen />
+      )}
+      {socket?.connected && gameSessionState.gamePhase === "end" && (
+        <WinnerScreen WinnerData={winnerData} />
       )}
     </div>
   );

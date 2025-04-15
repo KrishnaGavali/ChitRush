@@ -7,6 +7,7 @@ import { useSocket } from "../../Context/SocketContext/SocketContext";
 import { useGameSessionState } from "../../Context/GameSessionSocket/GameSessionState";
 import { AnimatePresence } from "motion/react";
 import { motion } from "motion/react";
+import PlayingInfo from "../GameComponents/PlayingInfo";
 
 const GameScreen = () => {
   const { id } = useParams();
@@ -32,6 +33,7 @@ const GameScreen = () => {
       setGameSessionState((prevState) => {
         const updatedUsers = { ...prevState.users };
         updatedUsers[data.nextUserId].chits.push(emoji);
+        updatedUsers[data.nextUserId].toPlay = true;
         return {
           ...prevState,
           users: updatedUsers,
@@ -70,6 +72,9 @@ const GameScreen = () => {
               Room Code: <span className="font-semibold text-white">{id}</span>
             </p>
           </div>
+        </div>
+        <div className="flex justify-center items-center mt-4 mb-4">
+          <PlayingInfo />
         </div>
         <div className="w-full h-screen flex justify-center items-center">
           <div className="grid grid-cols-2 gap-4">

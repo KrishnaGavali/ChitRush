@@ -7,8 +7,10 @@ import { useGameSessionState } from "../../Context/GameSessionSocket/GameSession
 const Card = ({ emoji, showCard, dropBoxRef }) => {
   const cardRef = useRef(null);
   const [isInDropbox, setIsInDropbox] = useState(false);
+  const [showAlert, setShowAlert] = useState(false); // State for alert visibility
   const { socket } = useSocket();
   const { gameSessionState, setGameSessionState } = useGameSessionState();
+  const storedUser = JSON.parse(localStorage.getItem("ChitRush_user"));
 
   const cardStyles = {
     display: "flex",
@@ -37,6 +39,13 @@ const Card = ({ emoji, showCard, dropBoxRef }) => {
       const storedUser = JSON.parse(localStorage.getItem("ChitRush_user"));
       const userId = storedUser.id;
 
+      if (gameSessionState.users[userId].toPlay === false) {
+        setShowAlert(true); // Show alert
+        setTimeout(() => setShowAlert(false), 2000); // Hide alert after 2 seconds
+        setIsInDropbox(false); // Reset drop state
+        return;
+      }
+
       socket.emit("card-passed", {
         roomCode: gameSessionState.roomCode,
         userId: userId,
@@ -59,6 +68,7 @@ const Card = ({ emoji, showCard, dropBoxRef }) => {
           [userId]: {
             ...prevState.users[userId],
             chits: updatedChitsArray,
+            toPlay: false,
           },
         },
       }));
@@ -68,34 +78,55 @@ const Card = ({ emoji, showCard, dropBoxRef }) => {
   };
 
   return (
-    <motion.div
-      ref={cardRef}
-      drag
-      dragSnapToOrigin
-      onDrag={handleDrag}
-      onDragEnd={handleDragEnd}
-      style={{ cursor: "grab" }}
-      whileTap={{ cursor: "grabbing" }}
-      animate={{ scale: isInDropbox ? 0.75 : 1 }}
-    >
-      <Flippy
-        isFlipped={showCard}
-        flipDirection="vertical"
-        flipOnHover={false}
-        flipOnClick={false}
-        style={{ width: "100px", height: "150px" }}
-        onClick={() => {}}
-        onMouseEnter={() => {}}
-        onMouseLeave={() => {}}
+    <>
+      {showAlert && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "10px",
+            left: "10px",
+            backgroundColor: "red",
+            color: "white",
+            padding: "10px",
+            borderRadius: "10px",
+            fontWeight: "bolder",
+            zIndex: 1000,
+          }}
+        >
+          Not your turn!
+        </div>
+      )}
+      <motion.div
+        ref={cardRef}
+        drag
+        dragSnapToOrigin
+        onDrag={handleDrag}
+        onDragEnd={handleDragEnd}
+        style={{ cursor: "grab" }}
+        whileTap={{ cursor: "grabbing" }}
+        animate={{ scale: isInDropbox ? 0.75 : 1 }}
       >
-        <FrontSide style={{ ...cardStyles, fontSize: "24px", color: "white" }}>
-          {/* Optional front content */}
-        </FrontSide>
-        <BackSide style={{ ...cardStyles, fontSize: "50px", color: "black" }}>
-          {emoji}
-        </BackSide>
-      </Flippy>
-    </motion.div>
+        <Flippy
+          isFlipped={showCard}
+          flipDirection="vertical"
+          flipOnHover={false}
+          flipOnClick={false}
+          style={{ width: "100px", height: "150px" }}
+          onClick={() => {}}
+          onMouseEnter={() => {}}
+          onMouseLeave={() => {}}
+        >
+          <FrontSide
+            style={{ ...cardStyles, fontSize: "24px", color: "white" }}
+          >
+            {/* Optional front content */}
+          </FrontSide>
+          <BackSide style={{ ...cardStyles, fontSize: "50px", color: "black" }}>
+            {emoji}
+          </BackSide>
+        </Flippy>
+      </motion.div>
+    </>
   );
 };
 

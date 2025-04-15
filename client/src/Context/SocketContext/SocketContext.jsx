@@ -10,7 +10,9 @@ export const SocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const newSocket = io(`http://192.168.19.5:3000`, {
+    const apiURL = import.meta.env.VITE_API_URL;
+
+    const newSocket = io(apiURL, {
       // Updated to use local IP
       // Optional configuration
       transports: ["websocket"],

@@ -35,8 +35,6 @@ io.on('connection', (socket) => {
             callback({ roomExits: true, roomFull: true });
             return;
         }
-
-
         callback({ roomExits: exists ? true : false, roomFull: false });
     });
 
@@ -184,7 +182,6 @@ io.on('connection', (socket) => {
         const user = await client.hget(`roomId:${data.roomCode}:userData`, data.userId);
 
         if (!user) {
-
             return;
         }
 
@@ -248,13 +245,23 @@ io.on('connection', (socket) => {
                 const emojisForUser = emojiPool.splice(0, 4);
                 users[userId].chits = emojisForUser;
                 emojiDistribution[userId] = emojisForUser;
+
+
+
+                if (users[userId].index === 1) {
+                    users[userId].toPlay = true;
+                }
             }
+
+
 
             // Save updated users back to Redis
             await client.hset(
                 `roomId:${data.roomCode}:userData`,
                 Object.entries(users).flatMap(([userId, userData]) => [userId, JSON.stringify(userData)])
             );
+
+
 
             // Emit start-game event
             setTimeout(() => {
@@ -285,13 +292,13 @@ io.on('connection', (socket) => {
             return acc;
         }, {});
 
-        console.log(usersObj)
-
         const pipeline = client.pipeline();
 
-
-        // Update the current user's chits
-        const currentUser = await client.hget(`roomId:${data.roomCode}:userData`, data.userId);
+        // 🎯 Update current user's chits
+        const currentUser = await client.hget(
+            `roomId:${data.roomCode}:userData`,
+            data.userId
+        );
         const currentUserData = JSON.parse(currentUser);
 
         const indexToRemove = currentUserData.chits.indexOf(data.emoji);
@@ -299,48 +306,90 @@ io.on('connection', (socket) => {
             currentUserData.chits.splice(indexToRemove, 1);
         }
 
-        pipeline.hset(`roomId:${data.roomCode}:userData`, data.userId, JSON.stringify(currentUserData));
+        pipeline.hset(
+            `roomId:${data.roomCode}:userData`,
+            data.userId,
+            JSON.stringify(currentUserData)
+        );
 
-        const noOfPlayers = await client.hget(`roomId:${data.roomCode}:roomData`, "noOfPlayers");
+        const noOfPlayers = await client.hget(
+            `roomId:${data.roomCode}:roomData`,
+            "noOfPlayers"
+        );
 
         let nextUserId;
-
-        console.log(data.userIndex, " : ", noOfPlayers)
-
         if (data.userIndex === parseInt(noOfPlayers)) {
-            nextUserId = Object.keys(usersObj).find((key) => {
-                return usersObj[key].index === 1;
-            }
+            // Loop to first user
+            nextUserId = Object.keys(usersObj).find(
+                (key) => usersObj[key].index === 1
             );
         } else {
-            nextUserId = Object.keys(usersObj).find((key) => {
-                return usersObj[key].index === (data.userIndex) + 1;
-            }
+            // Move to next index
+            nextUserId = Object.keys(usersObj).find(
+                (key) => usersObj[key].index === data.userIndex + 1
             );
         }
 
-        console.log("nextUserId : ", nextUserId)
+        const nextUser = await client.hget(
+            `roomId:${data.roomCode}:userData`,
+            nextUserId
+        );
+        const nextUserData = JSON.parse(nextUser);
 
-        const nextUser = await client.hget(`roomId:${data.roomCode}:userData`, nextUserId)
+        // 🥁 Announce who's playing next
+        if (nextUser) {
+            io.to(data.roomCode).emit("whos-playing", {
+                name: nextUserData.name,
+            });
+        }
 
+        // 🧠 Give emoji to next user
+        nextUserData.chits.push(data.emoji);
 
+        pipeline.hset(
+            `roomId:${data.roomCode}:userData`,
+            nextUserId,
+            JSON.stringify(nextUserData)
+        );
 
-        const nextUserData = JSON.parse(nextUser)
-
-        nextUserData.chits.push(data.emoji)
-
-        pipeline.hset(`roomId:${data.roomCode}:userData`, nextUserId, JSON.stringify(nextUserData))
-
+        // 🔁 Notify all clients of card movement
         io.to(data.roomCode).emit("card-passed", {
             emoji: data.emoji,
             nextUserId: nextUserId,
             userId: data.userId,
-        })
+        });
+
+        // 🏆 WINNER CHECK TIME
+        const isWinner = (userData) => {
+            return (
+                userData.chits.length === 4 &&
+                userData.chits.every((emoji) => emoji === userData.chits[0])
+            );
+        };
+
+        let winnerData = null;
+        if (isWinner(currentUserData)) {
+            winnerData = currentUserData;
+        } else if (isWinner(nextUserData)) {
+            winnerData = nextUserData;
+        }
+
+        if (winnerData) {
+            io.to(data.roomCode).emit("set-winner", {
+                name: winnerData.name,
+                chits: winnerData.chits,
+            });
+
+            console.log(
+                `🎉 Winner Found: ${winnerData.name} with chits: ${winnerData.chits}`
+            );
+        }
 
         pipeline.exec().then(() => {
-            console.log("Card passed successfully");
-        })
-    })
+            console.log("✅ Card passed and data saved successfully");
+        });
+    });
+
 
 });
 
